@@ -316,3 +316,63 @@ def merge_pair(ids, starts, a, b, new_id):
 
     return new_ids, new_starts
 
+# Step 7 - train_bpe
+def train_bpe(ids, starts, n_merges):
+    """
+    Train a BPE tokenizer by learning up to n_merges pair merges.
+
+    Args:
+        ids: Integer NumPy array containing byte/token IDs.
+        starts: Boolean array marking piece boundaries.
+        n_merges: Maximum number of BPE merges to learn.
+
+    Returns:
+        A list of (a, b) tuples, where each tuple represents
+        a pair of token IDs that should be merged.
+    """
+
+    # The final vocabulary contains the original 256 byte IDs
+    # plus the maximum number of requested merges.
+    vocab_size = 256 + n_merges
+
+    # Store the learned BPE merges in their training order.
+    merges = []
+
+    # Perform the BPE merging process.
+    for k in range(n_merges):
+
+        # Count all eligible adjacent token pairs.
+        counts = count_pairs(ids, starts, vocab_size)
+
+        # Stop early if no eligible pair remains.
+        if counts.max() == 0:
+            break
+
+        # Select the most frequent pair.
+        # np.argmax automatically resolves ties by choosing
+        # the smallest encoded pair ID.
+        best_code = int(np.argmax(counts))
+
+        # Decode the selected pair into its two token IDs.
+        a = best_code // vocab_size
+        b = best_code % vocab_size
+
+        # Store the selected pair as Python integers.
+        a = int(a)
+        b = int(b)
+
+        merges.append((a, b))
+
+        # Apply the merge using the next available token ID.
+        new_id = 256 + k
+
+        ids, starts = merge_pair(
+            ids,
+            starts,
+            a,
+            b,
+            new_id
+        )
+
+    return merges
+

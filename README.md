@@ -16,6 +16,7 @@ python scaffold.py
 - [x] **4.** to_stream
 - [x] **5.** count_pairs
 - [x] **6.** merge_pair
+- [x] **7.** train_bpe
 
 ---
 
