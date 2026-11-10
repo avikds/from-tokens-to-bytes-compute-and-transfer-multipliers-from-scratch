@@ -2377,3 +2377,97 @@ def compute_multiplier(base_law, new_law, loss):
     # Return the ratio of their compute requirements.
     return float(base_compute / new_compute)
 
+# Step 28 - loss_to_loss_multiplier
+def implied_eval(family, val_loss):
+    """
+    Calculate the implied held-out loss at a specified validation loss.
+
+    The family contains two fitted power laws:
+        family["val"]: Validation loss against compute.
+        family["eval"]: Held-out loss against compute.
+
+    Args:
+        family: Dictionary containing the validation and evaluation laws.
+        val_loss: Target validation loss.
+
+    Returns:
+        Implied held-out loss as a float.
+    """
+
+    # Extract the validation and held-out scaling laws.
+    val_law = family["val"]
+    eval_law = family["eval"]
+
+    # Extract the power-law coefficients and exponents.
+    A_v = float(val_law["A"])
+    alpha_v = float(val_law["alpha"])
+
+    A_e = float(eval_law["A"])
+    alpha_e = float(eval_law["alpha"])
+
+    x = float(val_loss)
+
+    # Validate the inputs before evaluating the power law.
+    if A_v <= 0 or A_e <= 0 or x <= 0:
+        raise ValueError("Scaling-law coefficients and val_loss must be positive")
+
+    if alpha_v <= 0:
+        raise ValueError("Validation scaling-law alpha must be positive")
+
+    # Eliminate compute between the validation and held-out laws.
+    exponent = alpha_e / alpha_v
+
+    return float(
+        A_e * (x / A_v) ** exponent
+    )
+
+
+def loss_to_loss_multiplier(family, reference, val_loss):
+    """
+    Calculate the loss-to-loss compute multiplier between
+    a model family and a reference family.
+
+    Args:
+        family: Model family containing "val" and "eval" laws.
+        reference: Reference family containing "val" and "eval" laws.
+        val_loss: Validation loss at which the comparison is made.
+
+    Returns:
+        Tuple containing:
+            y: Implied held-out loss of the family.
+            y_ref: Implied held-out loss of the reference.
+            m: Compute multiplier required by the family to
+               reach the reference's implied held-out loss.
+
+        A multiplier greater than 1 indicates that the reference
+        family has better transfer performance.
+    """
+
+    # Step 1: Calculate the family's implied held-out loss.
+    y = implied_eval(family, val_loss)
+
+    # Step 2: Calculate the reference's implied held-out loss
+    # at exactly the same validation loss.
+    y_ref = implied_eval(reference, val_loss)
+
+    # Step 3: Calculate the compute required to reach each
+    # held-out loss using the family's own evaluation law.
+    C_family_y_ref = compute_to_reach(
+        family["eval"],
+        y_ref
+    )
+
+    C_family_y = compute_to_reach(
+        family["eval"],
+        y
+    )
+
+    # Calculate the loss-to-loss compute multiplier.
+    m = C_family_y_ref / C_family_y
+
+    return (
+        float(y),
+        float(y_ref),
+        float(m)
+    )
+

@@ -37,6 +37,7 @@ python scaffold.py
 - [x] **25.** iso_flop_sweep
 - [x] **26.** fit_law
 - [x] **27.** compute_multiplier
+- [x] **28.** loss_to_loss_multiplier
 
 ---
 
