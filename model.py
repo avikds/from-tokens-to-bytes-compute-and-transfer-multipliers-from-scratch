@@ -1473,3 +1473,107 @@ def val_bpb(model, tok, chunks):
     # Convert total negative log-likelihood into bits per byte.
     return bits_per_byte(total_nats, total_bytes)
 
+# Step 21 - make_excerpts
+def make_excerpts(blob, n, prompt_bytes, answer_bytes, seed=0):
+    """
+    Extract random UTF-8-aligned prompt-and-answer pairs
+    from documents separated by the byte 0x1E.
+
+    Args:
+        blob: Raw corpus bytes containing separator-delimited documents.
+        n: Number of excerpts to generate.
+        prompt_bytes: Number of bytes in each prompt.
+        answer_bytes: Number of bytes in each answer.
+        seed: Random seed for reproducible sampling.
+
+    Returns:
+        A list of (prompt, answer) byte-string tuples.
+
+    Raises:
+        ValueError: If the requested excerpt lengths are invalid
+                    or no valid UTF-8-aligned excerpt can be sampled.
+    """
+
+    # Validate the requested sizes.
+    if n < 0 or prompt_bytes < 0 or answer_bytes < 0:
+        raise ValueError("Excerpt counts and byte lengths must be non-negative")
+
+    if n == 0:
+        return []
+
+    # Total number of bytes required for each excerpt.
+    total = prompt_bytes + answer_bytes
+
+    # Split the corpus into documents and retain only documents
+    # strictly longer than the requested excerpt length.
+    docs = [
+        doc
+        for doc in blob.split(b"\x1e")
+        if len(doc) > total
+    ]
+
+    if not docs:
+        raise ValueError("No documents are long enough for the requested excerpts")
+
+    # A UTF-8 continuation byte has a value between 0x80 and 0xBF.
+    def is_continuation(doc, pos):
+        return 0x80 <= doc[pos] <= 0xBF
+
+    # Check that at least one valid excerpt can be sampled.
+    # This prevents an infinite rejection-sampling loop.
+    has_valid_excerpt = False
+
+    for doc in docs:
+        for s in range(len(doc) - total):
+            boundaries = (
+                s,
+                s + prompt_bytes,
+                s + total
+            )
+
+            if not any(is_continuation(doc, pos) for pos in boundaries):
+                has_valid_excerpt = True
+                break
+
+        if has_valid_excerpt:
+            break
+
+    if not has_valid_excerpt:
+        raise ValueError("No valid UTF-8-aligned excerpts are available")
+
+    # Initialize the seeded random number generator.
+    rng = np.random.default_rng(seed)
+
+    excerpts = []
+
+    # Continue sampling until the requested number of pairs is obtained.
+    while len(excerpts) < n:
+
+        # Randomly select one eligible document.
+        doc = docs[int(rng.integers(len(docs)))]
+
+        # Randomly select the starting byte position.
+        # The upper bound follows the project's specified sampling range.
+        s = int(rng.integers(0, len(doc) - total))
+
+        # Determine the three excerpt boundaries.
+        prompt_end = s + prompt_bytes
+        excerpt_end = s + total
+
+        # Reject excerpts whose boundaries fall inside UTF-8 characters.
+        if (
+            is_continuation(doc, s)
+            or is_continuation(doc, prompt_end)
+            or is_continuation(doc, excerpt_end)
+        ):
+            continue
+
+        # Extract the prompt and answer as raw byte strings.
+        prompt = doc[s:prompt_end]
+        answer = doc[prompt_end:excerpt_end]
+
+        # Store the successfully sampled pair.
+        excerpts.append((prompt, answer))
+
+    return excerpts
+

@@ -30,6 +30,7 @@ python scaffold.py
 - [x] **18.** TinyLM
 - [x] **19.** score_sequences
 - [x] **20.** val_bpb
+- [x] **21.** make_excerpts
 
 ---
 
