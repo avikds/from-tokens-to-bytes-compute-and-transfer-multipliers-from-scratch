@@ -2523,3 +2523,125 @@ def l2l_rmse(family, runs):
 
     return float(rmse)
 
+# Step 30 - summarize
+def summarize(runs_by_encoding, reference="byte", base="bpe"):
+    """
+    Summarize compute-to-loss and loss-to-loss results
+    across all tokenization methods.
+
+    Args:
+        runs_by_encoding: Dictionary mapping encoding names to runs.
+        reference: Reference encoding for loss-to-loss comparisons.
+        base: Baseline encoding for compute comparisons.
+
+    Returns:
+        Dictionary containing:
+            val_loss: Base encoding's validation frontier loss.
+            eval_loss: Base encoding's held-out frontier loss.
+            families: Fitted validation and evaluation laws.
+            rows: Comparison metrics for every encoding.
+            best_compute: Most compute-efficient encoding.
+            best_transfer: Best transferring encoding.
+    """
+
+    # Validate the requested encodings.
+    if base not in runs_by_encoding:
+        raise ValueError(f"Base encoding '{base}' was not found")
+
+    if reference not in runs_by_encoding:
+        raise ValueError(f"Reference encoding '{reference}' was not found")
+
+    if not runs_by_encoding:
+        raise ValueError("At least one encoding is required")
+
+    # 1. Fit validation and evaluation power laws for each encoding.
+    families = {}
+
+    for encoding, runs in runs_by_encoding.items():
+        families[encoding] = {
+            "val": fit_law(runs, key="val"),
+            "eval": fit_law(runs, key="eval"),
+        }
+
+    base_family = families[base]
+    reference_family = families[reference]
+
+    # 2. Obtain the target losses from the base encoding's frontier
+    # at its largest compute budget.
+    x0 = float(base_family["val"]["points"][-1][1])
+    y0 = float(base_family["eval"]["points"][-1][1])
+
+    # 3. Calculate comparison metrics for every encoding.
+    rows = {}
+
+    for encoding, runs in runs_by_encoding.items():
+        family = families[encoding]
+
+        alpha_val = float(family["val"]["alpha"])
+        alpha_eval = float(family["eval"]["alpha"])
+
+        # Compute multiplier at equal validation loss.
+        # Correct orientation: C_encoding / C_base.
+        m_val = compute_multiplier(
+            family["val"],
+            base_family["val"],
+            x0
+        )
+
+        # Compute multiplier at equal held-out loss.
+        # Correct orientation: C_encoding / C_base.
+        m_eval = compute_multiplier(
+            family["eval"],
+            base_family["eval"],
+            y0
+        )
+
+        # Loss-to-loss multiplier relative to the reference encoding.
+        _, _, l2l_vs_ref = loss_to_loss_multiplier(
+            family,
+            reference_family,
+            x0
+        )
+
+        # Measure deviation from the implied loss-to-loss curve.
+        rmse = l2l_rmse(family, runs)
+
+        rows[encoding] = {
+            "alpha_val": alpha_val,
+            "alpha_eval": alpha_eval,
+            "m_val": float(m_val),
+            "m_eval": float(m_eval),
+            "l2l_vs_ref": float(l2l_vs_ref),
+            "rmse": float(rmse),
+        }
+
+    # 4. Identify the encoding requiring the least compute
+    # to reach the target validation loss.
+    best_compute = min(
+        families,
+        key=lambda encoding: compute_to_reach(
+            families[encoding]["val"],
+            x0
+        )
+    )
+
+    # 5. Identify the encoding with the lowest implied
+    # held-out loss at the target validation loss.
+    best_transfer = min(
+        families,
+        key=lambda encoding: implied_eval(
+            families[encoding],
+            x0
+        )
+    )
+
+    # 6. Return the complete comparison summary.
+    return {
+        "val_loss": float(x0),
+        "eval_loss": float(y0),
+        "families": families,
+        "rows": rows,
+        "best_compute": best_compute,
+        "best_transfer": best_transfer,
+    }
+
