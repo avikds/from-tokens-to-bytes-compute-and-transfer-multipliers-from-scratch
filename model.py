@@ -733,3 +733,51 @@ def train_flops_per_token(rung, vocab, seq_len):
 
     return int(total_flops)
 
+# Step 14 - plan_run
+def plan_run(rung, vocab, seq_len, batch, budget):
+    """
+    Convert a compute budget into a number of training steps.
+
+    Args:
+        rung: Transformer architecture dictionary.
+        vocab: Vocabulary size.
+        seq_len: Number of tokens per training sequence.
+        batch: Number of sequences per training step.
+        budget: Total available compute budget in FLOPs.
+
+    Returns:
+        Dictionary containing:
+            steps: Number of training steps.
+            tokens: Total number of training tokens.
+            flops: Actual total FLOPs spent.
+            flops_per_token: Training FLOPs per token.
+    """
+
+    # Calculate the training FLOPs required per token.
+    flops_per_token = train_flops_per_token(
+        rung, vocab, seq_len
+    )
+
+    # Calculate the FLOPs required for one training step.
+    per_step = flops_per_token * batch * seq_len
+
+    # Convert the compute budget into training steps.
+    # Use half-up rounding and enforce a minimum of one step.
+    steps = max(
+        1,
+        math.floor(budget / per_step + 0.5)
+    )
+
+    # Calculate the total number of tokens processed.
+    tokens = steps * batch * seq_len
+
+    # Calculate the actual compute consumed.
+    flops = steps * per_step
+
+    return {
+        "steps": int(steps),
+        "tokens": int(tokens),
+        "flops": int(flops),
+        "flops_per_token": int(flops_per_token),
+    }
+

@@ -23,6 +23,7 @@ python scaffold.py
 - [x] **11.** bytes_per_token
 - [x] **12.** toy_rung
 - [x] **13.** train_flops_per_token
+- [x] **14.** plan_run
 
 ---
 
