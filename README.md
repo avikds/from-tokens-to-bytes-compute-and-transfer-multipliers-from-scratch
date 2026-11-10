@@ -22,6 +22,7 @@ python scaffold.py
 - [x] **10.** encode_many
 - [x] **11.** bytes_per_token
 - [x] **12.** toy_rung
+- [x] **13.** train_flops_per_token
 
 ---
 

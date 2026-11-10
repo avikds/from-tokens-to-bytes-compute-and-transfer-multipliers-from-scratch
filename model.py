@@ -693,3 +693,43 @@ def toy_rung(L, head_dim=32, aspect=32, multiple=16, ffn_ratio=3.6):
         "backbone_params": int(backbone_params),
     }
 
+# Step 13 - train_flops_per_token
+def train_flops_per_token(rung, vocab, seq_len):
+    """
+    Calculate training FLOPs per token for one Transformer rung
+    using the project's causal-attention FLOP convention.
+
+    Args:
+        rung: Dictionary containing Transformer architecture
+              and backbone parameter information.
+        vocab: Vocabulary size.
+        seq_len: Sequence length.
+
+    Returns:
+        Total training FLOPs per token as an integer.
+    """
+
+    # Extract the required Transformer architecture parameters.
+    layers = rung["layers"]
+    d_model = rung["d_model"]
+    d_attn = rung["d_attn"]
+    backbone_params = rung["backbone_params"]
+
+    # Dense forward-pass FLOPs:
+    # Backbone operations plus the vocabulary output head.
+    dense_flops = 2 * (
+        backbone_params + vocab * d_model
+    )
+
+    # Causal attention FLOPs averaged over sequence positions.
+    attention_flops = (
+        layers * 2 * d_attn * (seq_len + 1)
+    )
+
+    # Training requires three times the forward-pass FLOPs.
+    total_flops = 3 * (
+        dense_flops + attention_flops
+    )
+
+    return int(total_flops)
+
