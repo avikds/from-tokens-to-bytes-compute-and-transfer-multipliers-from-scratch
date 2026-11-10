@@ -33,6 +33,7 @@ python scaffold.py
 - [x] **21.** make_excerpts
 - [x] **22.** covering_leaves
 - [x] **23.** answer_plan
+- [x] **24.** answer_bpb
 
 ---
 

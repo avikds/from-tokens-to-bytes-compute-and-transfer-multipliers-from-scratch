@@ -1823,3 +1823,176 @@ def answer_plan(tok, excerpts):
         "answer_bytes": int(answer_bytes),
     }
 
+# Step 24 - answer_bpb
+def answer_bpb(model, plan):
+    """
+    Score prompt-and-answer excerpts using canonical and
+    marginalized token probabilities.
+
+    Args:
+        model: Initialized TinyLM model.
+        plan: Precomputed answer plan containing canonical sequences,
+              covering leaves, and total answer bytes.
+
+    Returns:
+        Dictionary containing:
+            canonical: Canonical answer loss in bits per byte.
+            marginal: Marginalized answer loss in bits per byte.
+    """
+
+    # ---------------------------------------------------------
+    # 1. Canonical scoring.
+    # ---------------------------------------------------------
+
+    # Extract the canonical token sequences.
+    sequences = [
+        sequence
+        for sequence, k in plan["canonical"]
+    ]
+
+    # Score all canonical sequences.
+    canonical_scores = score_sequences(model, sequences)
+
+    # Accumulate the total negative answer log-probability.
+    canonical_nats = 0.0
+
+    for (sequence, k), (cum, last) in zip(
+        plan["canonical"],
+        canonical_scores
+    ):
+
+        # The answer log-probability is the cumulative
+        # log-probability after the prompt minus that of the prompt.
+        #
+        # Handle an empty prompt separately.
+        prompt_logp = float(cum[k - 1]) if k > 0 else 0.0
+
+        answer_logp = float(cum[-1]) - prompt_logp
+
+        # Convert log-probability into negative log-likelihood.
+        canonical_nats -= answer_logp
+
+    # ---------------------------------------------------------
+    # 2. Collect every distinct trunk for marginal scoring.
+    # ---------------------------------------------------------
+
+    unique_trunks = {}
+
+    for prompt_leaves, full_leaves in plan["leaves"]:
+
+        # Collect trunks covering the prompt.
+        for trunk in prompt_leaves:
+            unique_trunks[trunk] = None
+
+        # Collect trunks covering prompt + answer.
+        for trunk in full_leaves:
+            unique_trunks[trunk] = None
+
+    # Preserve insertion order while removing duplicates.
+    trunks = list(unique_trunks.keys())
+
+    # Score all distinct trunks in one call.
+    trunk_scores = score_sequences(model, trunks)
+
+    # Map each trunk to its cumulative and next-token log-probabilities.
+    scored_trunks = {
+        trunk: score
+        for trunk, score in zip(trunks, trunk_scores)
+    }
+
+    # ---------------------------------------------------------
+    # 3. Log-sum-exp helper for numerical stability.
+    # ---------------------------------------------------------
+
+    def logsumexp(values):
+
+        values = np.asarray(values, dtype=np.float64)
+
+        # An empty collection has log-probability negative infinity.
+        if values.size == 0:
+            return -float("inf")
+
+        # Subtract the maximum to prevent numerical overflow.
+        maximum = np.max(values)
+
+        if not np.isfinite(maximum):
+            return float(maximum)
+
+        return float(
+            maximum + np.log(
+                np.exp(values - maximum).sum()
+            )
+        )
+
+    # ---------------------------------------------------------
+    # 4. Calculate the probability of a covering dictionary.
+    # ---------------------------------------------------------
+
+    def cover_logprob(cover):
+        """
+        Calculate the log-probability of a byte string
+        represented by its valid covering leaves.
+
+        Each leaf contributes:
+            cum[-1] + last[t]
+
+        where cum and last belong to its trunk.
+        """
+
+        terms = []
+
+        for trunk, leaf_tokens in cover.items():
+
+            # Retrieve the previously computed trunk scores.
+            cum, last = scored_trunks[trunk]
+
+            # Log-probability of the trunk.
+            trunk_logp = float(cum[-1])
+
+            # Add the probability of each possible final token.
+            for t in leaf_tokens:
+                terms.append(
+                    trunk_logp + float(last[int(t)])
+                )
+
+        # Sum all valid covering probabilities in log space.
+        return logsumexp(terms)
+
+    # ---------------------------------------------------------
+    # 5. Marginal answer scoring.
+    # ---------------------------------------------------------
+
+    marginal_nats = 0.0
+
+    for prompt_leaves, full_leaves in plan["leaves"]:
+
+        # Probability of the prompt.
+        prompt_logp = cover_logprob(prompt_leaves)
+
+        # Probability of the complete prompt + answer.
+        full_logp = cover_logprob(full_leaves)
+
+        # Conditional answer log-probability:
+        # log P(prompt + answer) - log P(prompt).
+        answer_logp = full_logp - prompt_logp
+
+        # Accumulate negative log-likelihood.
+        marginal_nats -= answer_logp
+
+    # ---------------------------------------------------------
+    # 6. Convert both results into bits per byte.
+    # ---------------------------------------------------------
+
+    answer_bytes = plan["answer_bytes"]
+
+    return {
+        "canonical": bits_per_byte(
+            canonical_nats,
+            answer_bytes
+        ),
+        "marginal": bits_per_byte(
+            marginal_nats,
+            answer_bytes
+        ),
+    }
+
