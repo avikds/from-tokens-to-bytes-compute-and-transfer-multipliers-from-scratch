@@ -1577,3 +1577,157 @@ def make_excerpts(blob, n, prompt_bytes, answer_bytes, seed=0):
 
     return excerpts
 
+# Step 22 - covering_leaves
+def covering_leaves(tok, s):
+    """
+    Find every valid token sequence covering the byte string s,
+    grouped by its trunk.
+
+    Args:
+        tok: Tokenizer dictionary containing vocab, pretok and merges.
+        s: Input byte string.
+
+    Returns:
+        Dictionary mapping:
+            trunk (tuple of token IDs) -> list of valid final token IDs.
+
+        The final token IDs in each list are sorted in increasing order.
+    """
+
+    vocab = tok["vocab"]
+
+    # Find the maximum number of bytes represented by any token.
+    K = max((len(token_bytes) for token_bytes in vocab), default=0)
+
+    # Determine all possible split positions.
+    # The final token must cover at least the remaining suffix.
+    start = max(1, len(s) - K)
+
+    split_points = range(start, len(s))
+
+    # Collect candidates grouped by their split positions.
+    # A candidate token must begin with the remaining suffix of s.
+    candidates_by_j = {}
+
+    for j in split_points:
+        suffix = s[j:]
+
+        candidates = [
+            t
+            for t, token_bytes in enumerate(vocab)
+            if token_bytes.startswith(suffix)
+        ]
+
+        if candidates:
+            candidates_by_j[j] = candidates
+
+    # No valid candidates means there are no covering leaves.
+    if not candidates_by_j:
+        return {}
+
+    # Store the resulting covering leaves.
+    result = {}
+
+    # ---------------------------------------------------------
+    # Case 1: GPT-2-style pretokenization.
+    # ---------------------------------------------------------
+    if tok["pretok"]:
+
+        # Construct all candidate strings:
+        # s[:j] followed by the complete bytes of token t.
+        candidate_strings = [
+            s[:j] + vocab[t]
+            for j, candidates in candidates_by_j.items()
+            for t in candidates
+        ]
+
+        # Encode every candidate together in one encode_many call.
+        encoded_candidates = encode_many(tok, candidate_strings)
+
+        # Track the candidate corresponding to each encoding.
+        metadata = [
+            (j, t)
+            for j, candidates in candidates_by_j.items()
+            for t in candidates
+        ]
+
+        # A candidate is valid only when its encoding ends with t.
+        for (j, t), encoded in zip(metadata, encoded_candidates):
+
+            if encoded and encoded[-1] == t:
+
+                # Everything except the final token forms the trunk.
+                trunk = tuple(encoded[:-1])
+
+                result.setdefault(trunk, []).append(t)
+
+    # ---------------------------------------------------------
+    # Case 2: BPE-NP and raw-byte tokenization.
+    # ---------------------------------------------------------
+    else:
+
+        # Encode all candidate prefixes together.
+        js = list(candidates_by_j.keys())
+
+        prefixes = [
+            s[:j]
+            for j in js
+        ]
+
+        encoded_prefixes = encode_many(tok, prefixes)
+
+        # Associate each split position with its encoded trunk.
+        trunks = {
+            j: tuple(encoded)
+            for j, encoded in zip(js, encoded_prefixes)
+        }
+
+        # Construct the junction strings that need validation.
+        junction_strings = []
+        junction_metadata = []
+
+        for j, candidates in candidates_by_j.items():
+
+            trunk = trunks[j]
+
+            # A non-empty prefix must produce at least one token.
+            if not trunk:
+                continue
+
+            # The final token of the trunk must remain unchanged
+            # when followed by the candidate final token.
+            last_trunk = trunk[-1]
+
+            for t in candidates:
+
+                junction_strings.append(
+                    vocab[last_trunk] + vocab[t]
+                )
+
+                junction_metadata.append((trunk, t))
+
+        # Encode all junction candidates together in one call.
+        if junction_strings:
+
+            encoded_junctions = encode_many(
+                tok,
+                junction_strings
+            )
+
+            # A candidate is valid only if the junction encoding
+            # preserves the original two-token sequence exactly.
+            for (trunk, t), encoded in zip(
+                junction_metadata,
+                encoded_junctions
+            ):
+
+                if encoded == [trunk[-1], t]:
+
+                    result.setdefault(trunk, []).append(t)
+
+    # Return final token IDs in increasing order within each trunk.
+    for leaves in result.values():
+        leaves.sort()
+
+    return result
+

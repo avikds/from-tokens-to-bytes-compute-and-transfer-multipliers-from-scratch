@@ -31,6 +31,7 @@ python scaffold.py
 - [x] **19.** score_sequences
 - [x] **20.** val_bpb
 - [x] **21.** make_excerpts
+- [x] **22.** covering_leaves
 
 ---
 
