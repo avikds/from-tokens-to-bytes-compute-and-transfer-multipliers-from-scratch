@@ -971,3 +971,36 @@ def forward(params, rung, x):
 
     return logits
 
+# Step 17 - wsd_lr
+def wsd_lr(step, total, peak, warmup_frac=0.05, decay_frac=0.2):
+    """
+    Calculate the learning rate using a warmup-stable-decay schedule.
+
+    Args:
+        step: Current zero-based training step.
+        total: Total number of training steps.
+        peak: Maximum learning rate.
+        warmup_frac: Fraction of training steps used for warmup.
+        decay_frac: Fraction of training steps used for decay.
+
+    Returns:
+        Learning rate for the given training step.
+    """
+
+    # Calculate the warmup and decay durations.
+    # Each phase must contain at least one step.
+    warm = max(1, int(warmup_frac * total))
+    decay = max(1, int(decay_frac * total))
+
+    # Phase 1: Linear warmup.
+    if step < warm:
+        return peak * (step + 1) / warm
+
+    # Phase 3: Linear decay during the final training steps.
+    elif step >= total - decay:
+        return peak * (total - step) / decay
+
+    # Phase 2: Stable learning rate.
+    else:
+        return peak
+

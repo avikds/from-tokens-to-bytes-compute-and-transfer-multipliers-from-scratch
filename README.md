@@ -26,6 +26,7 @@ python scaffold.py
 - [x] **14.** plan_run
 - [x] **15.** init_params
 - [x] **16.** forward
+- [x] **17.** wsd_lr
 
 ---
 
