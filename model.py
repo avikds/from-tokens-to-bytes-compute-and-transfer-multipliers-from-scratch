@@ -580,3 +580,56 @@ def encode_many(tok, strings):
 
     return results
 
+# Step 11 - bytes_per_token
+def bytes_per_token(tok, blobs, max_bytes=None):
+    """
+    Measure the average number of bytes represented by each token
+    for every domain in the supplied corpus.
+
+    Args:
+        tok: Tokenizer dictionary containing merges and pretok.
+        blobs: Dictionary mapping domain names to raw byte strings.
+        max_bytes: Optional maximum number of bytes to process
+                   from each domain.
+
+    Returns:
+        A dictionary mapping each domain name to its average
+        number of bytes per token, as a float.
+    """
+
+    results = {}
+
+    # Select the appropriate pretokenization function.
+    split_fn = gpt2_pieces if tok["pretok"] else None
+
+    # Process each corpus domain independently.
+    for name, blob in blobs.items():
+
+        # Restrict the input to the requested number of bytes.
+        if max_bytes is not None:
+            blob = blob[:max_bytes]
+
+        # Convert the byte blob into a stream with piece boundaries.
+        ids, starts = to_stream(blob, split_fn=split_fn)
+
+        # Apply the tokenizer's learned BPE merges.
+        encoded = encode_stream(
+            ids,
+            starts,
+            tok["merges"]
+        )
+
+        # Count the original input bytes and resulting tokens.
+        n_bytes = len(blob)
+        n_tokens = len(encoded)
+
+        # Calculate average bytes per token.
+        # An empty input has no tokens, so return 0.0.
+        results[name] = (
+            float(n_bytes / n_tokens)
+            if n_tokens > 0
+            else 0.0
+        )
+
+    return results
+

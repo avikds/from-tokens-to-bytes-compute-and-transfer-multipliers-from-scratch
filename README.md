@@ -20,6 +20,7 @@ python scaffold.py
 - [x] **8.** encode_stream
 - [x] **9.** make_tokenizer
 - [x] **10.** encode_many
+- [x] **11.** bytes_per_token
 
 ---
 
