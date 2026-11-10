@@ -38,6 +38,7 @@ python scaffold.py
 - [x] **26.** fit_law
 - [x] **27.** compute_multiplier
 - [x] **28.** loss_to_loss_multiplier
+- [x] **29.** l2l_rmse
 
 ---
 

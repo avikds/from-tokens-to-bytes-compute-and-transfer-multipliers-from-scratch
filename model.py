@@ -2471,3 +2471,55 @@ def loss_to_loss_multiplier(family, reference, val_loss):
         float(m)
     )
 
+# Step 29 - l2l_rmse
+def l2l_rmse(family, runs):
+    """
+    Measure how far experimental runs deviate from the
+    family's implied loss-to-loss curve.
+
+    Args:
+        family: Dictionary containing fitted validation
+                and evaluation power laws.
+        runs: List of experiment result dictionaries containing
+              "val" and "eval" metrics.
+
+    Returns:
+        Root mean square relative error as a float.
+
+    Raises:
+        ValueError: If runs is empty or an evaluation loss is zero.
+    """
+
+    if not runs:
+        raise ValueError("At least one run is required")
+
+    # Calculate relative errors for every run.
+    errors = []
+
+    for run in runs:
+
+        actual_eval = float(run["eval"])
+
+        if actual_eval == 0:
+            raise ValueError("Evaluation loss must not be zero")
+
+        # Predict held-out loss using the fitted loss-to-loss curve.
+        predicted_eval = implied_eval(
+            family,
+            run["val"]
+        )
+
+        # Calculate relative error.
+        relative_error = (
+            actual_eval - predicted_eval
+        ) / actual_eval
+
+        errors.append(relative_error)
+
+    # Calculate the root mean square relative error.
+    rmse = math.sqrt(
+        sum(error ** 2 for error in errors) / len(errors)
+    )
+
+    return float(rmse)
+
