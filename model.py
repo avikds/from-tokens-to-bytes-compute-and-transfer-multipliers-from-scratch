@@ -97,3 +97,37 @@ def bits_per_byte(total_nats, n_bytes):
 
     return float(total_nats / (math.log(2) * n_bytes))
 
+# Step 3 - gpt2_pieces
+import re
+
+GPT2_PATTERN = re.compile(
+    r"'s|'t|'re|'ve|'m|'ll|'d| ?[^\W\d_]+| ?\d+| ?(?:[^\s\w]|_)+|\s+(?!\S)|\s+"
+)
+
+
+def gpt2_pieces(data):
+    """
+    Split a byte string into GPT-2-style pretokenized pieces.
+
+    Args:
+        data: Input text as raw bytes.
+
+    Returns:
+        A list of byte strings representing individual pretokenized pieces.
+
+    Surrogate escaping ensures that even invalid or incomplete UTF-8
+    sequences survive the decoding and re-encoding process unchanged.
+    """
+
+    # Decode bytes while preserving invalid UTF-8 bytes.
+    text = data.decode("utf-8", errors="surrogateescape")
+
+    # Find all GPT-2-style pretoken matches and convert each
+    # match back into bytes using the same error-handling strategy.
+    pieces = [
+        match.group(0).encode("utf-8", errors="surrogateescape")
+        for match in GPT2_PATTERN.finditer(text)
+    ]
+
+    return pieces
+
