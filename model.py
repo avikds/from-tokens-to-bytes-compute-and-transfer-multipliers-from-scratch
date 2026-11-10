@@ -376,3 +376,36 @@ def train_bpe(ids, starts, n_merges):
 
     return merges
 
+# Step 8 - encode_stream
+def encode_stream(ids, starts, merges):
+    """
+    Tokenize a byte stream by applying the learned BPE merges
+    in their original training order.
+
+    Args:
+        ids: Integer NumPy array containing byte/token IDs.
+        starts: Boolean array marking piece boundaries.
+        merges: List of (a, b) tuples representing learned BPE merges.
+
+    Returns:
+        The final token ID NumPy array.
+    """
+
+    # Apply each learned merge exactly once, in list order.
+    for k, (a, b) in enumerate(merges):
+
+        # Each merge creates a new token ID starting from 256.
+        new_id = 256 + k
+
+        # Apply the merge and carry forward the updated arrays.
+        ids, starts = merge_pair(
+            ids,
+            starts,
+            a,
+            b,
+            new_id
+        )
+
+    # Return only the final token ID array.
+    return ids
+
