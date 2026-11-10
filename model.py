@@ -214,3 +214,43 @@ def to_stream(blob, split_fn=None):
 
     return ids, starts
 
+# Step 5 - count_pairs
+def count_pairs(ids, starts, vocab_size):
+    """
+    Count all adjacent token pairs that may be merged.
+
+    Args:
+        ids: Integer NumPy array containing token IDs.
+        starts: Boolean array marking the beginning of pieces.
+        vocab_size: Number of tokens in the vocabulary.
+
+    Returns:
+        A NumPy array of length vocab_size ** 2 containing
+        the frequency of every possible adjacent token pair.
+    """
+
+    # Convert IDs to int64 to prevent integer overflow during
+    # pair encoding.
+    ids = np.asarray(ids, dtype=np.int64)
+
+    # Ensure the piece-start mask is Boolean.
+    starts = np.asarray(starts, dtype=bool)
+
+    # A pair (ids[i], ids[i + 1]) is eligible only when
+    # its right element does not begin a new piece.
+    valid = ~starts[1:]
+
+    # Encode each eligible pair as a unique integer.
+    pair_codes = (
+        ids[:-1][valid] * np.int64(vocab_size)
+        + ids[1:][valid]
+    )
+
+    # Count the occurrences of every possible pair.
+    counts = np.bincount(
+        pair_codes,
+        minlength=vocab_size * vocab_size
+    )
+
+    return counts
+

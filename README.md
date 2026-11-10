@@ -14,6 +14,7 @@ python scaffold.py
 - [x] **2.** bits_per_byte
 - [x] **3.** gpt2_pieces
 - [x] **4.** to_stream
+- [x] **5.** count_pairs
 
 ---
 
