@@ -1004,3 +1004,304 @@ def wsd_lr(step, total, peak, warmup_frac=0.05, decay_frac=0.2):
     else:
         return peak
 
+# Step 18 - TinyLM
+from tinygrad import TinyJit
+
+
+class TinyLM:
+    def __init__(
+        self,
+        rung,
+        vocab,
+        seq_len,
+        batch,
+        eval_batch=16,
+        wd=0.1,
+        b1=0.9,
+        b2=0.95,
+        eps=1e-8,
+    ):
+        """
+        Initialize the Transformer model, AdamW optimizer state,
+        and compiled training and scoring functions.
+        """
+
+        # Store the configuration and optimizer hyperparameters.
+        self.rung = rung
+        self.vocab = vocab
+        self.seq_len = seq_len
+        self.batch = batch
+        self.eval_batch = eval_batch
+
+        self.wd = wd
+        self.b1 = b1
+        self.b2 = b2
+        self.eps = eps
+
+        # Initialize all Transformer parameters.
+        self.params = init_params(
+            rung, vocab, seq_len, 0
+        )
+
+        # Preserve the parameter order for gradient computation
+        # and optimizer updates.
+        param_values = list(self.params.values())
+
+        # Initialize AdamW first-moment estimates.
+        self.m = [
+            Tensor(np.zeros(p.shape, dtype=np.float32)).realize()
+            for p in param_values
+        ]
+
+        # Initialize AdamW second-moment estimates.
+        self.v = [
+            Tensor(np.zeros(p.shape, dtype=np.float32)).realize()
+            for p in param_values
+        ]
+
+        # Initialize the AdamW timestep.
+        self.t = Tensor([0.0]).realize()
+
+        # -----------------------------------------------------
+        # Compiled training step.
+        # -----------------------------------------------------
+
+        def training_step(x, y, lr):
+
+            # Forward pass and next-token prediction loss.
+            logits = forward(self.params, self.rung, x)
+
+            loss = logits.sparse_categorical_crossentropy(y)
+
+            # Calculate gradients for every model parameter.
+            grads = loss.gradient(*param_values)
+
+            # Increment the AdamW timestep.
+            self.t.assign(self.t + 1.0)
+
+            # Calculate AdamW bias-correction denominators.
+            bias1 = 1.0 - self.b1 ** self.t
+            bias2 = 1.0 - self.b2 ** self.t
+
+            # -------------------------------------------------
+            # AdamW parameter updates.
+            # -------------------------------------------------
+
+            for p, m, v, g in zip(
+                param_values,
+                self.m,
+                self.v,
+                grads
+            ):
+
+                # Update first and second gradient moments.
+                m.assign(
+                    self.b1 * m + (1.0 - self.b1) * g
+                )
+
+                v.assign(
+                    self.b2 * v + (1.0 - self.b2) * g * g
+                )
+
+                # Bias-corrected Adam moments.
+                m_hat = m / bias1
+                v_hat = v / bias2
+
+                # Adam update.
+                update = m_hat / (v_hat + self.eps).sqrt()
+
+                # Apply weight decay only to 2-D parameters.
+                if len(p.shape) == 2:
+                    update = update + self.wd * p
+
+                # Update model parameters.
+                p.assign(p - lr * update)
+
+            # Realize the loss and all updated optimizer/model states.
+            loss.realize(
+                self.t,
+                *param_values,
+                *self.m,
+                *self.v
+            )
+
+            return loss
+
+        # Compile the training function.
+        self._train_step = TinyJit(training_step)
+
+        # -----------------------------------------------------
+        # Compiled scoring function.
+        # -----------------------------------------------------
+
+        def scoring_step(x):
+
+            # Compute log probabilities over the vocabulary.
+            return forward(
+                self.params,
+                self.rung,
+                x
+            ).log_softmax(-1).realize()
+
+        # Compile the scoring function.
+        self._scoring_step = TinyJit(scoring_step)
+
+    def reset(self, seed):
+        """
+        Reinitialize model parameters and reset AdamW state.
+
+        Existing parameter and optimizer tensors are updated in place
+        rather than replaced, preserving the TinyJit references.
+        """
+
+        # Generate fresh parameters using the requested seed.
+        new_params = init_params(
+            self.rung,
+            self.vocab,
+            self.seq_len,
+            seed
+        )
+
+        # Copy the new parameter values into existing tensors.
+        for name, p in self.params.items():
+            p.assign(new_params[name])
+
+        # Reset both AdamW moment estimates.
+        for moment_list in (self.m, self.v):
+
+            for moment in moment_list:
+                moment.assign(
+                    Tensor(
+                        np.zeros(moment.shape, dtype=np.float32)
+                    )
+                )
+
+        # Reset the optimizer timestep.
+        self.t.assign(Tensor([0.0]))
+
+        # Realize all parameter and optimizer-state updates.
+        self.t.realize(
+            *self.params.values(),
+            *self.m,
+            *self.v
+        )
+
+    def train(self, stream, steps, peak_lr, seed):
+        """
+        Train the Transformer using random windows from a token stream.
+
+        Args:
+            stream: NumPy array containing training token IDs.
+            steps: Number of training steps.
+            peak_lr: Peak learning rate for the WSD schedule.
+            seed: Random seed for sampling training windows.
+
+        Returns:
+            A list of training losses as Python floats,
+            recorded every 50 steps and after the final step.
+        """
+
+        # Create a reproducible NumPy random generator.
+        rng = np.random.default_rng(seed)
+
+        # Ensure the stream contains int32 token IDs.
+        stream = np.asarray(stream, dtype=np.int32)
+
+        if stream.ndim != 1:
+            raise ValueError("stream must be a one-dimensional array")
+
+        # Validate that the stream is long enough to sample windows.
+        upper = len(stream) - self.seq_len - 1
+
+        if upper <= 0 and steps > 0:
+            raise ValueError("stream is too short for the requested sequence length")
+
+        # Record losses at the required intervals.
+        losses = []
+
+        # Relative positions for each sampled window.
+        offsets = np.arange(
+            self.seq_len + 1,
+            dtype=np.int64
+        )
+
+        # Run the training loop.
+        for i in range(steps):
+
+            # Draw random starting positions for the batch.
+            starts = rng.integers(
+                0,
+                upper,
+                self.batch
+            )
+
+            # Construct indices for windows of seq_len + 1 tokens.
+            idx = starts[:, None] + offsets[None, :]
+
+            # Extract the sampled windows.
+            windows = stream[idx]
+
+            # Inputs contain the first seq_len tokens.
+            x = windows[:, :-1].astype(
+                np.int32,
+                copy=False
+            )
+
+            # Targets contain the next seq_len tokens.
+            y = windows[:, 1:].astype(
+                np.int32,
+                copy=False
+            )
+
+            # Convert inputs and targets into tinygrad tensors.
+            x = Tensor(x)
+            y = Tensor(y)
+
+            # Calculate the learning rate for the current step.
+            lr = Tensor([
+                wsd_lr(i, steps, peak_lr)
+            ])
+
+            # Execute the compiled training step.
+            loss = self._train_step(x, y, lr)
+
+            # Record the loss every 50 steps and after the last step.
+            if (i + 1) % 50 == 0 or i == steps - 1:
+                losses.append(float(loss.numpy()))
+
+        return losses
+
+    def log_probs(self, x):
+        """
+        Compute log probabilities for an evaluation batch.
+
+        Args:
+            x: NumPy int array of shape (eval_batch, seq_len).
+
+        Returns:
+            NumPy array of shape (eval_batch, seq_len, vocab).
+        """
+
+        # Ensure inputs use the required int32 representation.
+        x = np.asarray(x, dtype=np.int32)
+
+        # Validate the evaluation input shape.
+        expected_shape = (
+            self.eval_batch,
+            self.seq_len
+        )
+
+        if x.shape != expected_shape:
+            raise ValueError(
+                f"Expected input shape {expected_shape}, got {x.shape}"
+            )
+
+        # Convert inputs to a tinygrad tensor.
+        x = Tensor(x)
+
+        # Run the compiled scoring function.
+        result = self._scoring_step(x)
+
+        # Return the realized result as a NumPy array.
+        return result.numpy()
+

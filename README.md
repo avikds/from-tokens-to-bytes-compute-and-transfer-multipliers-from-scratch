@@ -27,6 +27,7 @@ python scaffold.py
 - [x] **15.** init_params
 - [x] **16.** forward
 - [x] **17.** wsd_lr
+- [x] **18.** TinyLM
 
 ---
 
