@@ -1731,3 +1731,95 @@ def covering_leaves(tok, s):
 
     return result
 
+# Step 23 - answer_plan
+def answer_plan(tok, excerpts):
+    """
+    Precompute tokenizer-dependent information for scoring
+    prompt-and-answer excerpts.
+
+    Args:
+        tok: Tokenizer dictionary.
+        excerpts: List of (prompt, answer) byte-string pairs.
+
+    Returns:
+        Dictionary containing:
+            canonical: List of (sequence, k) pairs, where sequence
+                       contains prompt tokens followed by answer
+                       tokens, and k is the number of prompt tokens.
+
+            leaves: List of (prompt_leaves, full_leaves) pairs,
+                    containing valid covering leaves for the prompt
+                    and prompt + answer.
+
+            answer_bytes: Total number of answer bytes.
+    """
+
+    # Preserve the input excerpt order.
+    excerpts = list(excerpts)
+
+    # ---------------------------------------------------------
+    # 1. Encode all prompts and answers in one batch.
+    # ---------------------------------------------------------
+
+    # Flatten the excerpts into:
+    # [prompt_0, answer_0, prompt_1, answer_1, ...]
+    strings = []
+
+    for prompt, answer in excerpts:
+        strings.extend([prompt, answer])
+
+    # Encode every prompt and answer in a single encode_many call.
+    encoded = encode_many(tok, strings)
+
+    # ---------------------------------------------------------
+    # 2. Construct canonical token sequences.
+    # ---------------------------------------------------------
+
+    canonical = []
+
+    # ---------------------------------------------------------
+    # 3. Construct valid covering leaves.
+    # ---------------------------------------------------------
+
+    leaves = []
+
+    # Accumulate the total number of answer bytes.
+    answer_bytes = 0
+
+    for i, (prompt, answer) in enumerate(excerpts):
+
+        # Retrieve the independently encoded prompt and answer.
+        prompt_tokens = encoded[2 * i]
+        answer_tokens = encoded[2 * i + 1]
+
+        # Count the number of prompt tokens.
+        k = len(prompt_tokens)
+
+        # Join prompt and answer token sequences.
+        sequence = prompt_tokens + answer_tokens
+
+        # Store the canonical sequence and prompt-token count.
+        canonical.append((sequence, k))
+
+        # Calculate valid covering leaves for the prompt.
+        prompt_leaves = covering_leaves(tok, prompt)
+
+        # Calculate valid covering leaves for the complete text.
+        full_leaves = covering_leaves(tok, prompt + answer)
+
+        # Store both covering trees.
+        leaves.append((prompt_leaves, full_leaves))
+
+        # Accumulate answer bytes.
+        answer_bytes += len(answer)
+
+    # ---------------------------------------------------------
+    # 4. Return the complete answer plan.
+    # ---------------------------------------------------------
+
+    return {
+        "canonical": canonical,
+        "leaves": leaves,
+        "answer_bytes": int(answer_bytes),
+    }
+
