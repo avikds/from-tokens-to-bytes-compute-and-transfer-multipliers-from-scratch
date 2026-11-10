@@ -1305,3 +1305,112 @@ class TinyLM:
         # Return the realized result as a NumPy array.
         return result.numpy()
 
+# Step 19 - score_sequences
+def score_sequences(model, seqs):
+    """
+    Score a list of token sequences using TinyLM in fixed-size batches.
+
+    Args:
+        model: Initialized TinyLM instance.
+        seqs: List of token sequences.
+
+    Returns:
+        A list of (cum, last) tuples, one per input sequence.
+
+        cum:
+            Float64 array of length n containing cumulative
+            log probabilities, with cum[0] = 0.
+
+        last:
+            Float64 array containing the next-token
+            log-probability distribution.
+
+    Raises:
+        ValueError: If a sequence is longer than model.seq_len.
+        ValueError: If a sequence is empty.
+    """
+
+    results = []
+
+    # Process sequences in chunks of model.eval_batch.
+    seqs = iter(seqs)
+
+    while True:
+
+        # Collect the next batch of sequences.
+        chunk = []
+
+        for _ in range(model.eval_batch):
+            try:
+                chunk.append(next(seqs))
+            except StopIteration:
+                break
+
+        # Stop when all sequences have been processed.
+        if not chunk:
+            break
+
+        # Create a fixed-shape int32 batch filled with zeros.
+        batch = np.zeros(
+            (model.eval_batch, model.seq_len),
+            dtype=np.int32
+        )
+
+        lengths = []
+
+        # Copy each sequence into the beginning of its batch row.
+        for row, seq in enumerate(chunk):
+
+            q = np.asarray(seq, dtype=np.int32)
+
+            n = len(q)
+
+            # Reject sequences exceeding the model context length.
+            if n > model.seq_len:
+                raise ValueError(
+                    f"Sequence length {n} exceeds "
+                    f"model.seq_len={model.seq_len}"
+                )
+
+            # An empty sequence has no position n-1 to score.
+            if n == 0:
+                raise ValueError("Sequences must not be empty")
+
+            batch[row, :n] = q
+            lengths.append(n)
+
+        # Obtain log probabilities with one model call per chunk.
+        log_probs = model.log_probs(batch)
+
+        # Calculate cumulative probabilities for each sequence.
+        for row, n in enumerate(lengths):
+
+            # Extract the log-probability matrix for this sequence.
+            row_log_probs = log_probs[row]
+
+            # Convert the relevant values to float64.
+            row_log_probs = row_log_probs.astype(np.float64)
+
+            # Initialize cumulative log probabilities.
+            cum = np.zeros(n, dtype=np.float64)
+
+            # Position i-1 predicts token q[i].
+            if n > 1:
+                q = np.asarray(chunk[row], dtype=np.int32)
+
+                token_log_probs = row_log_probs[
+                    np.arange(n - 1),
+                    q[1:]
+                ]
+
+                # Calculate cumulative sums.
+                cum[1:] = np.cumsum(token_log_probs)
+
+            # Distribution of the next token after the full sequence.
+            last = row_log_probs[n - 1].copy()
+
+            # Store the result in the original input order.
+            results.append((cum, last))
+
+    return results
+

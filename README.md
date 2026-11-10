@@ -28,6 +28,7 @@ python scaffold.py
 - [x] **16.** forward
 - [x] **17.** wsd_lr
 - [x] **18.** TinyLM
+- [x] **19.** score_sequences
 
 ---
 
