@@ -18,6 +18,7 @@ python scaffold.py
 - [x] **6.** merge_pair
 - [x] **7.** train_bpe
 - [x] **8.** encode_stream
+- [x] **9.** make_tokenizer
 
 ---
 

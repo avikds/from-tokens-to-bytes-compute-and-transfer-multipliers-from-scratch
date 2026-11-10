@@ -409,3 +409,57 @@ def encode_stream(ids, starts, merges):
     # Return only the final token ID array.
     return ids
 
+# Step 9 - make_tokenizer
+def make_tokenizer(name, merges, pretok):
+    """
+    Create a tokenizer dictionary from a list of BPE merges.
+
+    Args:
+        name: Tokenizer name ("byte", "bpe", or "bpe_np").
+        merges: List of (a, b) tuples representing BPE merges.
+        pretok: Whether GPT-2-style pretokenization is enabled.
+
+    Returns:
+        A dictionary containing:
+            name: Tokenizer name.
+            merges: List of BPE merge tuples.
+            pretok: Boolean indicating whether pretokenization is used.
+            vocab: List of byte strings representing vocabulary tokens.
+            ranks: Dictionary mapping each merge pair to its rank.
+            cache: Empty dictionary for caching encoded pieces.
+    """
+
+    # Ensure all merge pairs contain ordinary Python integers.
+    merges = [
+        (int(a), int(b))
+        for a, b in merges
+    ]
+
+    # Initialize the vocabulary with all 256 possible byte values.
+    vocab = [
+        bytes([i])
+        for i in range(256)
+    ]
+
+    # Build the vocabulary by applying merges in their original order.
+    for a, b in merges:
+
+        # The new token is the concatenation of its two components.
+        vocab.append(vocab[a] + vocab[b])
+
+    # Map each merge pair to its position in the merge sequence.
+    ranks = {
+        pair: k
+        for k, pair in enumerate(merges)
+    }
+
+    # Return the complete tokenizer configuration.
+    return {
+        "name": name,
+        "merges": merges,
+        "pretok": bool(pretok),
+        "vocab": vocab,
+        "ranks": ranks,
+        "cache": {},
+    }
+
