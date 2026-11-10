@@ -34,6 +34,7 @@ python scaffold.py
 - [x] **22.** covering_leaves
 - [x] **23.** answer_plan
 - [x] **24.** answer_bpb
+- [x] **25.** iso_flop_sweep
 
 ---
 

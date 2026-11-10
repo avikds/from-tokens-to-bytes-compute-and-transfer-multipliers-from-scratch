@@ -1996,3 +1996,219 @@ def answer_bpb(model, plan):
         ),
     }
 
+# Step 25 - iso_flop_sweep
+def iso_flop_sweep(
+    tok,
+    stream,
+    sizes,
+    budgets,
+    seed,
+    peak_lr,
+    val_chunks,
+    eval_plans,
+    seq_len,
+    batch,
+    val_weights=None,
+    eval_domains=None
+):
+    """
+    Train every model size at every compute budget for one tokenizer.
+
+    Args:
+        tok: Tokenizer dictionary.
+        stream: Training token stream.
+        sizes: Iterable of Transformer depths.
+        budgets: Iterable of compute budgets in FLOPs.
+        seed: Random seed for model initialization and training.
+        peak_lr: Fixed peak learning rate or callable accepting a rung.
+        val_chunks: Dictionary mapping validation domains to byte chunks.
+        eval_plans: Dictionary mapping held-out domains to answer plans.
+        seq_len: Training sequence length.
+        batch: Training batch size.
+        val_weights: Optional dictionary of validation domain weights.
+        eval_domains: Optional list of held-out domains used for
+                      aggregate evaluation metrics.
+
+    Returns:
+        A list of dictionaries containing the results of every run.
+    """
+
+    # Store the results of all model-size and compute-budget combinations.
+    runs = []
+
+    # Convert the training stream into a NumPy array.
+    stream = np.asarray(stream, dtype=np.int32)
+
+    # Iterate over every requested Transformer depth.
+    for L in sizes:
+
+        # Build the Transformer architecture for this depth.
+        rung = toy_rung(L)
+
+        # Determine the peak learning rate.
+        # A callable may use the model architecture to choose its LR.
+        lr = peak_lr(rung) if callable(peak_lr) else peak_lr
+        lr = float(lr)
+
+        # Initialize one model for this size.
+        # The same model is reused across budgets, with reset(seed)
+        # restoring the initialization before every individual run.
+        model = TinyLM(
+            rung,
+            len(tok["vocab"]),
+            seq_len,
+            batch
+        )
+
+        # Iterate over compute budgets in the supplied order.
+        for budget in budgets:
+
+            # Calculate the number of training steps for this budget.
+            plan = plan_run(
+                rung,
+                len(tok["vocab"]),
+                seq_len,
+                batch,
+                budget
+            )
+
+            # Reset model parameters and AdamW optimizer state.
+            model.reset(seed)
+
+            # Start measuring total training and evaluation time.
+            run_start = time.perf_counter()
+
+            # -------------------------------------------------
+            # 1. Training.
+            # -------------------------------------------------
+
+            train_start = time.perf_counter()
+
+            losses = model.train(
+                stream,
+                plan["steps"],
+                lr,
+                seed
+            )
+
+            # Measure training-only wall-clock time.
+            train_seconds = time.perf_counter() - train_start
+
+            # The final recorded training loss.
+            train_loss = float(losses[-1])
+
+            # -------------------------------------------------
+            # 2. Validation evaluation.
+            # -------------------------------------------------
+
+            # Compute validation BPB independently for every domain.
+            val_by_domain = {
+                domain: float(
+                    val_bpb(model, tok, chunks)
+                )
+                for domain, chunks in val_chunks.items()
+            }
+
+            # Calculate the aggregate validation loss.
+            # Use equal weights when val_weights is not supplied.
+            if val_weights is None:
+
+                val = float(
+                    np.mean(list(val_by_domain.values()))
+                )
+
+            else:
+
+                weights = {
+                    domain: float(val_weights[domain])
+                    for domain in val_by_domain
+                }
+
+                weight_sum = sum(weights.values())
+
+                if weight_sum == 0:
+                    raise ValueError(
+                        "The sum of validation weights must not be zero"
+                    )
+
+                val = float(
+                    sum(
+                        val_by_domain[domain] * weights[domain]
+                        for domain in val_by_domain
+                    ) / weight_sum
+                )
+
+            # -------------------------------------------------
+            # 3. Held-out evaluation.
+            # -------------------------------------------------
+
+            # Compute canonical and marginal answer BPB for every
+            # held-out domain.
+            eval_by_domain = {
+                domain: answer_bpb(model, plan_eval)
+                for domain, plan_eval in eval_plans.items()
+            }
+
+            # Determine which domains contribute to the aggregate
+            # held-out evaluation metrics.
+            selected_domains = (
+                list(eval_plans.keys())
+                if eval_domains is None
+                else list(eval_domains)
+            )
+
+            if not selected_domains:
+                raise ValueError(
+                    "At least one evaluation domain is required"
+                )
+
+            # Average marginal held-out loss across selected domains.
+            eval_loss = float(
+                np.mean([
+                    eval_by_domain[domain]["marginal"]
+                    for domain in selected_domains
+                ])
+            )
+
+            # Average canonical held-out loss across selected domains.
+            eval_canonical = float(
+                np.mean([
+                    eval_by_domain[domain]["canonical"]
+                    for domain in selected_domains
+                ])
+            )
+
+            # -------------------------------------------------
+            # 4. Record execution time.
+            # -------------------------------------------------
+
+            # Includes training and all validation/held-out measurements.
+            seconds = time.perf_counter() - run_start
+
+            # -------------------------------------------------
+            # 5. Store the complete run result.
+            # -------------------------------------------------
+
+            run = {
+                "encoding": tok["name"],
+                "L": int(L),
+                "budget": float(budget),
+                "flops": int(plan["flops"]),
+                "steps": int(plan["steps"]),
+                "tokens": int(plan["tokens"]),
+                "lr": float(lr),
+                "seed": seed,
+                "train_loss": train_loss,
+                "val_by_domain": val_by_domain,
+                "val": val,
+                "eval_by_domain": eval_by_domain,
+                "eval": eval_loss,
+                "eval_canonical": eval_canonical,
+                "train_seconds": float(train_seconds),
+                "seconds": float(seconds),
+            }
+
+            runs.append(run)
+
+    return runs
+
