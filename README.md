@@ -11,6 +11,7 @@ python scaffold.py
 ## Steps
 
 - [x] **1.** load_split
+- [x] **2.** bits_per_byte
 
 ---
 

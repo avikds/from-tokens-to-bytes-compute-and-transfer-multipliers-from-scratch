@@ -72,3 +72,28 @@ def load_split(split):
 
     return result
 
+# Step 2 - bits_per_byte
+import math
+
+
+def bits_per_byte(total_nats, n_bytes):
+    """
+    Convert total negative log-likelihood from nats
+    into bits per byte.
+
+    Args:
+        total_nats: Sum of negative log-likelihood values in nats.
+        n_bytes: Number of UTF-8 bytes covered by predictions.
+
+    Returns:
+        Bits per byte as a float.
+
+    Raises:
+        ValueError: If n_bytes is not positive.
+    """
+
+    if n_bytes <= 0:
+        raise ValueError("n_bytes must be positive")
+
+    return float(total_nats / (math.log(2) * n_bytes))
+
