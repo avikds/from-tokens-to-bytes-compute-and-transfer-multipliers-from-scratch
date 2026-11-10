@@ -13,6 +13,7 @@ python scaffold.py
 - [x] **1.** load_split
 - [x] **2.** bits_per_byte
 - [x] **3.** gpt2_pieces
+- [x] **4.** to_stream
 
 ---
 

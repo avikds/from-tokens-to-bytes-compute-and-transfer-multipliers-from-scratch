@@ -131,3 +131,86 @@ def gpt2_pieces(data):
 
     return pieces
 
+# Step 4 - to_stream
+import numpy as np
+
+
+def to_stream(blob, split_fn=None):
+    """
+    Convert a corpus blob into a byte stream with piece boundaries.
+
+    Args:
+        blob: Bytes containing documents separated by byte 0x1E.
+        split_fn: Optional function that splits each document into
+                  byte pieces. If None, only document boundaries
+                  and separator boundaries are marked.
+
+    Returns:
+        ids: int32 NumPy array containing byte values.
+        starts: Boolean NumPy array marking the beginning of pieces.
+
+    A separator byte (0x1E) is treated as a piece of its own.
+    """
+
+    # Convert each byte into an int32 token ID.
+    ids = np.frombuffer(blob, dtype=np.uint8).astype(np.int32)
+
+    # Initialize the Boolean array for piece boundaries.
+    starts = np.zeros(len(blob), dtype=bool)
+
+    # An empty blob produces two empty arrays.
+    if len(blob) == 0:
+        return ids, starts
+
+    # The first byte always begins a new piece.
+    starts[0] = True
+
+    separator = b"\x1e"
+    doc_start = 0
+    n = len(blob)
+
+    # Process each document separated by the separator byte.
+    while True:
+
+        # Locate the next document separator.
+        sep_pos = blob.find(separator, doc_start)
+
+        # Determine the end of the current document.
+        doc_end = sep_pos if sep_pos != -1 else n
+
+        # Apply the optional pretokenizer to the current document.
+        if split_fn is not None:
+            document = blob[doc_start:doc_end]
+
+            # Track the position of each piece in the original blob.
+            offset = doc_start
+
+            for piece in split_fn(document):
+
+                piece_len = len(piece)
+
+                # Mark the first byte of every non-empty piece.
+                if piece_len > 0:
+                    starts[offset] = True
+
+                # Advance to the beginning of the next piece.
+                offset += piece_len
+
+        # Stop if there are no more separators.
+        if sep_pos == -1:
+            break
+
+        # The separator byte must begin its own piece.
+        starts[sep_pos] = True
+
+        # The byte immediately after the separator starts a new document.
+        next_start = sep_pos + 1
+
+        if next_start < n:
+            starts[next_start] = True
+
+        # Continue with the next document.
+        doc_start = next_start
+
+    return ids, starts
+
