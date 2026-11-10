@@ -1414,3 +1414,62 @@ def score_sequences(model, seqs):
 
     return results
 
+# Step 20 - val_bpb
+def val_bpb(model, tok, chunks):
+    """
+    Compute validation bits per byte using canonical tokenization.
+
+    Args:
+        model: Initialized TinyLM model.
+        tok: Tokenizer dictionary.
+        chunks: List of validation byte strings.
+
+    Returns:
+        Validation loss in bits per byte as a float.
+    """
+
+    # Encode all validation chunks using the tokenizer's
+    # canonical encoding.
+    token_seqs = encode_many(tok, chunks)
+
+    # Limit each encoded sequence to the model's context length.
+    token_seqs = [
+        seq[:model.seq_len]
+        for seq in token_seqs
+    ]
+
+    # Empty sequences contain no tokens to score.
+    # Exclude them from model evaluation.
+    token_seqs = [
+        seq for seq in token_seqs
+        if len(seq) > 0
+    ]
+
+    # Score all remaining sequences.
+    # score_sequences handles fixed-size evaluation batches.
+    scored = score_sequences(model, token_seqs)
+
+    # Accumulate total negative log-likelihood in nats.
+    total_nats = 0.0
+
+    # Accumulate the number of original bytes covered
+    # by the scored tokens.
+    total_bytes = 0
+
+    for seq, (cum, last) in zip(token_seqs, scored):
+
+        # Every token except the first contributes a prediction.
+        # cum[-1] contains their total log-probability.
+        total_nats -= float(cum[-1])
+
+        # Count the bytes represented by all scored tokens.
+        # The first token is excluded because it has no
+        # preceding context within the sequence.
+        total_bytes += sum(
+            len(tok["vocab"][int(token_id)])
+            for token_id in seq[1:]
+        )
+
+    # Convert total negative log-likelihood into bits per byte.
+    return bits_per_byte(total_nats, total_bytes)
+

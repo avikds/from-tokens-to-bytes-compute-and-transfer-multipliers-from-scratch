@@ -29,6 +29,7 @@ python scaffold.py
 - [x] **17.** wsd_lr
 - [x] **18.** TinyLM
 - [x] **19.** score_sequences
+- [x] **20.** val_bpb
 
 ---
 
