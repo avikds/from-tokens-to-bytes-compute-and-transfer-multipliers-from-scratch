@@ -254,3 +254,65 @@ def count_pairs(ids, starts, vocab_size):
 
     return counts
 
+# Step 6 - merge_pair
+def merge_pair(ids, starts, a, b, new_id):
+    """
+    Replace every allowed occurrence of the pair (a, b)
+    with new_id, without overlapping merges.
+
+    Args:
+        ids: Integer NumPy array containing token IDs.
+        starts: Boolean array marking the beginning of pieces.
+        a: First token ID of the pair.
+        b: Second token ID of the pair.
+        new_id: Token ID assigned to the merged pair.
+
+    Returns:
+        A tuple (new_ids, new_starts) containing the
+        updated token IDs and piece-start flags.
+    """
+
+    # Find all eligible adjacent pairs.
+    # A pair is eligible only if its right element
+    # does not begin a new piece.
+    matches = np.flatnonzero(
+        (ids[:-1] == a)
+        & (ids[1:] == b)
+        & (~starts[1:])
+    )
+
+    # If no eligible pair exists, return the original arrays.
+    if len(matches) == 0:
+        return ids, starts
+
+    # Handle overlapping pairs when both token IDs are identical.
+    if a == b:
+        selected = []
+        next_available = 0
+
+        # Scan from left to right, avoiding overlapping merges.
+        for i in matches:
+            if i >= next_available:
+                selected.append(i)
+
+                # The next merge must begin after the merged pair.
+                next_available = i + 2
+
+        matches = np.asarray(selected, dtype=np.intp)
+
+    # Copy the original token IDs before modifying them.
+    new_ids = ids.copy()
+
+    # Replace the first element of every selected pair.
+    new_ids[matches] = new_id
+
+    # Mark the second element of each merged pair for removal.
+    keep = np.ones(len(ids), dtype=bool)
+    keep[matches + 1] = False
+
+    # Remove merged-away elements from both arrays.
+    new_ids = new_ids[keep]
+    new_starts = starts[keep]
+
+    return new_ids, new_starts
+

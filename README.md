@@ -15,6 +15,7 @@ python scaffold.py
 - [x] **3.** gpt2_pieces
 - [x] **4.** to_stream
 - [x] **5.** count_pairs
+- [x] **6.** merge_pair
 
 ---
 
