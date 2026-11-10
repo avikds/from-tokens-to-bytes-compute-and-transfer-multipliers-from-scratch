@@ -2314,3 +2314,66 @@ def fit_law(runs, key="val"):
         "points": points,
     }
 
+# Step 27 - compute_multiplier
+def compute_to_reach(law, loss):
+    """
+    Calculate the compute required to reach a specified loss
+    using a fitted power law.
+
+    The fitted law is:
+        L*(C) = A * C**(-alpha)
+
+    Args:
+        law: Dictionary containing "A" and "alpha".
+        loss: Target loss value.
+
+    Returns:
+        Required compute as a float.
+
+    Raises:
+        ValueError: If A or loss is not positive, or alpha is zero.
+    """
+
+    A = float(law["A"])
+    alpha = float(law["alpha"])
+    loss = float(loss)
+
+    if A <= 0 or loss <= 0:
+        raise ValueError("A and loss must be positive")
+
+    if alpha == 0:
+        raise ValueError("alpha must not be zero")
+
+    # Calculate compute in logarithmic space for numerical stability.
+    log_compute = (math.log(A) - math.log(loss)) / alpha
+
+    return float(math.exp(log_compute))
+
+
+def compute_multiplier(base_law, new_law, loss):
+    """
+    Compare the compute requirements of two fitted power laws
+    at an equal target loss.
+
+    Args:
+        base_law: Fitted power law of the baseline model family.
+        new_law: Fitted power law of the new model family.
+        loss: Target loss shared by both model families.
+
+    Returns:
+        Compute multiplier:
+            C_base(loss) / C_new(loss)
+
+        A value greater than 1 means the new model family
+        requires less compute.
+    """
+
+    # Calculate the compute required by the baseline family.
+    base_compute = compute_to_reach(base_law, loss)
+
+    # Calculate the compute required by the new family.
+    new_compute = compute_to_reach(new_law, loss)
+
+    # Return the ratio of their compute requirements.
+    return float(base_compute / new_compute)
+
