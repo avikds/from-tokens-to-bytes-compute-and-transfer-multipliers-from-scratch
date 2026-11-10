@@ -35,6 +35,7 @@ python scaffold.py
 - [x] **23.** answer_plan
 - [x] **24.** answer_bpb
 - [x] **25.** iso_flop_sweep
+- [x] **26.** fit_law
 
 ---
 

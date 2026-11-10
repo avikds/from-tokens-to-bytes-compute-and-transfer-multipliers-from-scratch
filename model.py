@@ -2212,3 +2212,105 @@ def iso_flop_sweep(
 
     return runs
 
+# Step 26 - fit_law
+def fit_law(runs, key="val"):
+    """
+    Fit a compute-to-loss power law on the compute-optimal frontier.
+
+    The fitted law is:
+
+        L*(C) = A * C**(-alpha)
+
+    Args:
+        runs: List of experiment result dictionaries.
+        key: Loss metric used to construct the frontier.
+             Defaults to "val".
+
+    Returns:
+        Dictionary containing:
+            A: Power-law coefficient.
+            alpha: Power-law exponent.
+            points: Sorted list of (flops, loss) tuples.
+
+    Raises:
+        ValueError: If fewer than two distinct compute budgets exist.
+    """
+
+    # ---------------------------------------------------------
+    # 1. Find the best run for each distinct compute budget.
+    # ---------------------------------------------------------
+
+    best_by_budget = {}
+
+    for run in runs:
+        budget = run["budget"]
+        loss = float(run[key])
+
+        # Keep the run with the lowest loss for this budget.
+        if (
+            budget not in best_by_budget
+            or loss < float(best_by_budget[budget][key])
+        ):
+            best_by_budget[budget] = run
+
+    # A power-law fit requires at least two distinct budgets.
+    if len(best_by_budget) < 2:
+        raise ValueError(
+            "At least two distinct compute budgets are required"
+        )
+
+    # ---------------------------------------------------------
+    # 2. Construct and sort frontier points by budget.
+    # ---------------------------------------------------------
+
+    points = [
+        (
+            float(run["flops"]),
+            float(run[key])
+        )
+        for budget, run in sorted(best_by_budget.items())
+    ]
+
+    # Power-law fitting requires strictly positive compute and loss.
+    if any(flops <= 0 or loss <= 0 for flops, loss in points):
+        raise ValueError(
+            "FLOPs and losses must be positive for logarithmic fitting"
+        )
+
+    # ---------------------------------------------------------
+    # 3. Transform the frontier points into log space.
+    # ---------------------------------------------------------
+
+    log_compute = np.log(
+        np.array([flops for flops, loss in points], dtype=np.float64)
+    )
+
+    log_loss = np.log(
+        np.array([loss for flops, loss in points], dtype=np.float64)
+    )
+
+    # ---------------------------------------------------------
+    # 4. Fit log(L) = log(A) - alpha * log(C).
+    # ---------------------------------------------------------
+
+    # Ordinary least-squares linear regression.
+    slope, intercept = np.polyfit(
+        log_compute,
+        log_loss,
+        deg=1
+    )
+
+    # Recover the power-law parameters.
+    alpha = -float(slope)
+    A = float(np.exp(intercept))
+
+    # ---------------------------------------------------------
+    # 5. Return the fitted scaling law and frontier points.
+    # ---------------------------------------------------------
+
+    return {
+        "A": A,
+        "alpha": alpha,
+        "points": points,
+    }
+
