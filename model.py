@@ -781,3 +781,83 @@ def plan_run(rung, vocab, seq_len, batch, budget):
         "flops_per_token": int(flops_per_token),
     }
 
+# Step 15 - init_params
+from tinygrad import Tensor
+
+
+def init_params(rung, vocab, seq_len, seed=0):
+    """
+    Initialize all Transformer parameters as realized tinygrad tensors.
+
+    Args:
+        rung: Dictionary containing Transformer architecture details.
+        vocab: Vocabulary size.
+        seq_len: Maximum sequence length.
+        seed: Random seed for reproducible initialization.
+
+    Returns:
+        Dictionary containing all initialized Transformer parameters.
+    """
+
+    # Extract architecture dimensions.
+    D = rung["d_model"]
+    A = rung["d_attn"]
+    F = rung["ffn"]
+    n = rung["layers"]
+
+    # Create one random number generator for reproducibility.
+    rng = np.random.default_rng(seed)
+
+    # Helper function to create and realize a float32 tensor.
+    def realize(array):
+        return Tensor(array).contiguous().realize()
+
+    # Helper function to initialize weights with a normal distribution.
+    def randn(std, shape):
+        array = rng.normal(0.0, std, shape).astype(np.float32)
+        return realize(array)
+
+    # Helper function to initialize normalization vectors to ones.
+    def ones(shape):
+        return realize(np.ones(shape, dtype=np.float32))
+
+    # Store all model parameters in the required creation order.
+    params = {}
+
+    # 1. Token and positional embeddings.
+    params["tok_emb"] = randn(0.02, (vocab, D))
+    params["pos_emb"] = randn(0.02, (seq_len, D))
+
+    # Scaling factor for the residual projection weights.
+    residual_std = 0.02 / math.sqrt(2 * n)
+
+    # 2. Initialize parameters for every Transformer layer.
+    for i in range(n):
+
+        # First pre-normalization layer.
+        params[f"norm1.{i}"] = ones((D,))
+
+        # Combined query, key and value projection.
+        params[f"qkv.{i}"] = randn(0.02, (D, 3 * A))
+
+        # Attention output projection.
+        params[f"proj.{i}"] = randn(residual_std, (A, D))
+
+        # Second pre-normalization layer.
+        params[f"norm2.{i}"] = ones((D,))
+
+        # SwiGLU feed-forward network weights.
+        params[f"w1.{i}"] = randn(0.02, (D, F))
+        params[f"w3.{i}"] = randn(0.02, (D, F))
+
+        # Feed-forward output projection.
+        params[f"w2.{i}"] = randn(residual_std, (F, D))
+
+    # 3. Final normalization layer.
+    params["norm_f"] = ones((D,))
+
+    # 4. Output vocabulary projection head.
+    params["head"] = randn(0.02, (D, vocab))
+
+    return params
+
