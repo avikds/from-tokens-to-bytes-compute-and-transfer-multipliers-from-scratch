@@ -463,3 +463,120 @@ def make_tokenizer(name, merges, pretok):
         "cache": {},
     }
 
+# Step 10 - encode_many
+def encode_many(tok, strings):
+    """
+    Encode multiple byte strings independently using a tokenizer.
+
+    Args:
+        tok: Tokenizer dictionary containing merges, pretok,
+             and cache.
+        strings: List of input byte strings.
+
+    Returns:
+        A list of Python lists containing token IDs,
+        one list for each input string.
+
+    Raises:
+        ValueError: If any input string contains the separator byte 0x1E.
+    """
+
+    separator = b"\x1e"
+
+    # Convert the input iterable into a list.
+    strings = list(strings)
+
+    # Reject strings containing the reserved separator byte.
+    if any(separator in s for s in strings):
+        raise ValueError("Input strings must not contain the separator byte 0x1E")
+
+    # Return an empty list when there are no input strings.
+    if not strings:
+        return []
+
+    # Helper function to split encoded token IDs at separator ID 30.
+    # Empty strings and consecutive separators are preserved.
+    def split_encoded(encoded):
+        boundaries = np.flatnonzero(encoded == 30)
+
+        results = []
+        start = 0
+
+        for pos in boundaries:
+            results.append(encoded[start:pos].tolist())
+            start = pos + 1
+
+        results.append(encoded[start:].tolist())
+
+        return results
+
+    # ---------------------------------------------------------
+    # Case 1: No GPT-2-style pretokenization (BPE-NP).
+    # ---------------------------------------------------------
+    if not tok["pretok"]:
+
+        # Join all strings using the reserved separator.
+        blob = separator.join(strings)
+
+        # Convert the combined blob into a byte stream.
+        ids, starts = to_stream(blob)
+
+        # Apply all learned BPE merges in a single encoding call.
+        encoded = encode_stream(ids, starts, tok["merges"])
+
+        # Split the encoded stream back into individual strings.
+        return split_encoded(encoded)
+
+    # ---------------------------------------------------------
+    # Case 2: GPT-2-style pretokenization (BPE).
+    # ---------------------------------------------------------
+
+    # Split each input string into GPT-2-style byte pieces.
+    pieces_per_string = [
+        gpt2_pieces(s)
+        for s in strings
+    ]
+
+    # Collect pieces that are not already present in the cache.
+    # dict.fromkeys() also prevents duplicate pieces from
+    # being encoded multiple times in the same call.
+    missing_pieces = list(dict.fromkeys(
+        piece
+        for pieces in pieces_per_string
+        for piece in pieces
+        if piece not in tok["cache"]
+    ))
+
+    # Encode all missing pieces together in a single call.
+    if missing_pieces:
+
+        # Separate independent pieces using the reserved byte.
+        blob = separator.join(missing_pieces)
+
+        # Build a stream with document boundaries.
+        ids, starts = to_stream(blob)
+
+        # Encode the combined stream.
+        encoded = encode_stream(ids, starts, tok["merges"])
+
+        # Recover the encoding of each individual piece.
+        encoded_pieces = split_encoded(encoded)
+
+        # Store the results in the tokenizer cache.
+        for piece, piece_ids in zip(missing_pieces, encoded_pieces):
+            tok["cache"][piece] = piece_ids
+
+    # Reconstruct each original string's token sequence
+    # using the cached encodings of its individual pieces.
+    results = []
+
+    for pieces in pieces_per_string:
+        token_ids = []
+
+        for piece in pieces:
+            token_ids.extend(tok["cache"][piece])
+
+        results.append(token_ids)
+
+    return results
+
