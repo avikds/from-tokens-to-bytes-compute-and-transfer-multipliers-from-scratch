@@ -861,3 +861,113 @@ def init_params(rung, vocab, seq_len, seed=0):
 
     return params
 
+# Step 16 - forward
+def forward(params, rung, x):
+    """
+    Compute next-token logits using a pre-norm causal Transformer.
+
+    Args:
+        params: Dictionary containing initialized Transformer parameters.
+        rung: Dictionary containing Transformer architecture details.
+        x: Integer tinygrad Tensor of shape (B, T), where T <= seq_len.
+
+    Returns:
+        Logits Tensor of shape (B, T, vocab).
+    """
+
+    # Extract input dimensions.
+    B, T = x.shape
+
+    # Extract Transformer architecture dimensions.
+    D = rung["d_model"]
+    A = rung["d_attn"]
+    heads = rung["heads"]
+    head_dim = rung["head_dim"]
+
+    # RMSNorm helper.
+    # Normalize over the last dimension and apply the learned weight.
+    def rms(h, g):
+        variance = (h * h).mean(axis=-1, keepdim=True)
+        return h * (variance + 1e-5).rsqrt() * g
+
+    # ---------------------------------------------------------
+    # 1. Token and positional embeddings.
+    # ---------------------------------------------------------
+
+    h = params["tok_emb"][x] + params["pos_emb"][:T]
+
+    # ---------------------------------------------------------
+    # 2. Transformer layers.
+    # ---------------------------------------------------------
+
+    for i in range(rung["layers"]):
+
+        # -----------------------------------------------------
+        # Pre-normalization followed by QKV projection.
+        # -----------------------------------------------------
+
+        z = rms(h, params[f"norm1.{i}"])
+
+        qkv = z @ params[f"qkv.{i}"]
+
+        # Split the combined projection into query, key and value.
+        q, k, v = qkv.chunk(3, dim=-1)
+
+        # Reshape each tensor into (B, T, heads, head_dim).
+        q = q.reshape(B, T, heads, head_dim)
+        k = k.reshape(B, T, heads, head_dim)
+        v = v.reshape(B, T, heads, head_dim)
+
+        # Move the attention-head dimension forward:
+        # (B, heads, T, head_dim).
+        q = q.transpose(1, 2)
+        k = k.transpose(1, 2)
+        v = v.transpose(1, 2)
+
+        # -----------------------------------------------------
+        # Causal self-attention.
+        # -----------------------------------------------------
+
+        # Each position can attend only to itself and
+        # preceding positions.
+        attn = q.scaled_dot_product_attention(
+            k,
+            v,
+            is_causal=True
+        )
+
+        # Restore the original sequence layout:
+        # (B, heads, T, head_dim)
+        # -> (B, T, heads, head_dim)
+        # -> (B, T, d_attn).
+        attn = attn.transpose(1, 2).reshape(B, T, A)
+
+        # Attention output projection and residual connection.
+        h = h + attn @ params[f"proj.{i}"]
+
+        # -----------------------------------------------------
+        # Pre-normalization followed by SwiGLU feed-forward.
+        # -----------------------------------------------------
+
+        z = rms(h, params[f"norm2.{i}"])
+
+        # SwiGLU activation:
+        # silu(z @ w1) element-wise multiplied by (z @ w3).
+        gate = (z @ params[f"w1.{i}"]).silu()
+        value = z @ params[f"w3.{i}"]
+
+        ffn = gate * value
+
+        # Feed-forward output projection and residual connection.
+        h = h + ffn @ params[f"w2.{i}"]
+
+    # ---------------------------------------------------------
+    # 3. Final RMS normalization and vocabulary projection.
+    # ---------------------------------------------------------
+
+    h = rms(h, params["norm_f"])
+
+    logits = h @ params["head"]
+
+    return logits
+

@@ -25,6 +25,7 @@ python scaffold.py
 - [x] **13.** train_flops_per_token
 - [x] **14.** plan_run
 - [x] **15.** init_params
+- [x] **16.** forward
 
 ---
 
