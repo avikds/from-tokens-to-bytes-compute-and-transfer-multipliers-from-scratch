@@ -633,3 +633,63 @@ def bytes_per_token(tok, blobs, max_bytes=None):
 
     return results
 
+# Step 12 - toy_rung
+def toy_rung(L, head_dim=32, aspect=32, multiple=16, ffn_ratio=3.6):
+    """
+    Build one rung of the scaled-down Transformer ladder.
+
+    Args:
+        L: Number of Transformer layers.
+        head_dim: Dimension of each attention head.
+        aspect: Controls the model width relative to depth.
+        multiple: Required rounding multiple for model dimensions.
+        ffn_ratio: Ratio used to determine the FFN width.
+
+    Returns:
+        Dictionary containing the Transformer architecture
+        and backbone parameter count.
+
+    Raises:
+        ValueError: If L is less than 1.
+    """
+
+    # A Transformer must have at least one layer.
+    if L < 1:
+        raise ValueError("L must be at least 1")
+
+    L = int(L)
+
+    # Model width: nearest multiple of `multiple` to aspect * L.
+    D = multiple * math.floor(
+        (aspect * L) / multiple + 0.5
+    )
+
+    # Number of attention heads equals the number of layers.
+    heads = L
+
+    # Total attention projection width.
+    d_attn = head_dim * L
+
+    # Feed-forward network width: nearest multiple of `multiple`.
+    F = multiple * math.floor(
+        (ffn_ratio * D) / multiple + 0.5
+    )
+
+    # Backbone parameters:
+    # 4 * D * d_attn for Q, K, V and output projections.
+    # 3 * D * F for the three SwiGLU matrices.
+    backbone_params = L * (
+        4 * D * d_attn + 3 * D * F
+    )
+
+    # Return all architecture entries as Python integers.
+    return {
+        "layers": int(L),
+        "d_model": int(D),
+        "heads": int(heads),
+        "head_dim": int(head_dim),
+        "d_attn": int(d_attn),
+        "ffn": int(F),
+        "backbone_params": int(backbone_params),
+    }
+

@@ -21,6 +21,7 @@ python scaffold.py
 - [x] **9.** make_tokenizer
 - [x] **10.** encode_many
 - [x] **11.** bytes_per_token
+- [x] **12.** toy_rung
 
 ---
 
