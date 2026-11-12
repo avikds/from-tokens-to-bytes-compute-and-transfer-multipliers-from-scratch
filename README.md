@@ -40,7 +40,3 @@ python scaffold.py
 - [x] **28.** loss_to_loss_multiplier
 - [x] **29.** l2l_rmse
 - [x] **30.** summarize
-
----
-
-Built on Deep-ML.
